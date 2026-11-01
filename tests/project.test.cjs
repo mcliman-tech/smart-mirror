@@ -81,3 +81,14 @@ test('nessun dato meteo finto cablato nel codice', () => {
   assert.doesNotMatch(app, /💧 55%/);
   assert.doesNotMatch(app, /💨 12 km\/h/);
 });
+
+test('ogni feed notizie ha un URL diretto (niente function server-side)', () => {
+  const config = read('config.js');
+  const urls = [...config.matchAll(/url:\s*'(https?:\/\/[^']+)'/g)].map(m => m[1]);
+  assert.ok(urls.length >= 5, `attesi almeno 5 feed, trovati ${urls.length}`);
+  urls.forEach(u => assert.match(u, /^https:\/\//));
+});
+
+test('app.js non chiama più la function Netlify', () => {
+  assert.doesNotMatch(read('app.js'), /\.netlify\/functions/);
+});

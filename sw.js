@@ -68,14 +68,15 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(event.request.url);
 
-  // Function Netlify (notizie): sempre rete, niente cache di risposte dinamiche.
-  if (url.pathname.startsWith('/.netlify/functions/')) {
+  // Modello vocale (~48 MB): mai in cache del service worker, la gestisce
+  // il browser con gli header di cache. Intercettarla qui la rallenterebbe.
+  if (url.pathname.startsWith('/models/')) {
     return;
   }
 
-  // Modello vocale (~48 MB): mai in cache del service worker, la gestisce
-  // il browser con gli header di Netlify. Intercettarla qui la rallenterebbe.
-  if (url.pathname.startsWith('/models/')) {
+  // Feed RSS non raggiungibili direttamente dal browser (niente CORS):
+  // la rete li gestisce, nessuna cache di risposte di terze parti.
+  if (/rss|feed|\/sitemaps\//i.test(url.pathname)) {
     return;
   }
 

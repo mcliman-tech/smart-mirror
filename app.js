@@ -526,13 +526,56 @@ let newsItems = [];
 let currentNewsIndex = 0;
 let newsRotateTimer = null;
 
+// Alcuni lettori RSS non mandano gli header CORS, quindi il browser non può
+// leggerli direttamente. Per quei feed passiamo da un proxy CORS pubblico.
+// Se un feed risponde direttamente (come SardiniaPost) non serve nessun proxy.
+const NEWS_CORS_PROXIES = [
+  url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+  url => `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(url)}`,
+];
+
+function extractNewsXml(text) {
+  const trimmed = text.trim();
+  // allorigins in modalità /get incapsula l'XML in JSON: lo estraiamo.
+  if (trimmed.startsWith('{')) {
+    try {
+      const data = JSON.parse(trimmed);
+      if (typeof data.contents === 'string') return data.contents;
+    } catch (error) {
+      console.warn('Risposta proxy non leggibile:', error.message);
+    }
+  }
+  return trimmed;
+}
+
+// Scarica il testo di un feed: prima diretto, poi con i proxy in ordine.
+async function fetchFeedText(url) {
+  const attempts = [
+    () => fetch(url, { cache: 'no-store' }),
+    ...NEWS_CORS_PROXIES.map(proxy => () => fetch(proxy(url), { cache: 'no-store' })),
+  ];
+
+  let lastError = null;
+  for (const attempt of attempts) {
+    try {
+      const response = await attempt();
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const text = extractNewsXml(await response.text());
+      if (!text.includes('<item') && !text.includes('<entry')) {
+        throw new Error('Il feed non contiene notizie.');
+      }
+      return text;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError || new Error('Feed non raggiungibile.');
+}
+
 async function fetchNews() {
   const feedResults = await Promise.all(CONFIG.news.feeds.map(async feed => {
     try {
-      const res = await fetch(`/.netlify/functions/news?feed=${encodeURIComponent(feed.id)}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-      const text = await res.text();
+      const text = await fetchFeedText(feed.url);
       const doc = new DOMParser().parseFromString(text, 'text/xml');
       if (doc.querySelector('parsererror')) throw new Error('XML non valido.');
 

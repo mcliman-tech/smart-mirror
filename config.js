@@ -26,13 +26,21 @@ const CONFIG = {
 
   // ── Notizie locali, regionali e nazionali ──
   news: {
+    // Ogni feed porta con sé il proprio URL: niente più function server-side.
+    // Se un feed non manda gli header CORS, app.js ripiega su un proxy pubblico.
     feeds: [
-      { id: 'casteddu', name: 'Casteddu Online', category: 'Cagliari · Casteddu' },
-      { id: 'sardiniapost', name: 'SardiniaPost', category: 'Sardegna · SardiniaPost' },
-      { id: 'ansa-sardegna', name: 'ANSA Sardegna', category: 'Sardegna · ANSA' },
-      { id: 'unionesarda', name: "L'Unione Sarda", category: "Sardegna · L'Unione Sarda" },
-      { id: 'breaking', name: 'Adnkronos', category: "Italia · Ultim'ora" },
-      { id: 'frontpage', name: 'Adnkronos Prima Pagina', category: 'Italia · Adnkronos' },
+      { id: 'casteddu', name: 'Casteddu Online', category: 'Cagliari · Casteddu',
+        url: 'https://www.castedduonline.it/feed/' },
+      { id: 'sardiniapost', name: 'SardiniaPost', category: 'Sardegna · SardiniaPost',
+        url: 'https://www.sardiniapost.it/feed/' },
+      { id: 'ansa-sardegna', name: 'ANSA Sardegna', category: 'Sardegna · ANSA',
+        url: 'https://www.ansa.it/sardegna/notizie/sardegna_rss.xml' },
+      { id: 'unionesarda', name: "L'Unione Sarda", category: "Sardegna · L'Unione Sarda",
+        url: 'https://www.unionesarda.it/sitemaps/rss' },
+      { id: 'breaking', name: 'Adnkronos', category: "Italia · Ultim'ora",
+        url: 'https://www.adnkronos.com/RSS_Ultimora.xml' },
+      { id: 'frontpage', name: 'Adnkronos Prima Pagina', category: 'Italia · Adnkronos',
+        url: 'https://www.adnkronos.com/RSS_PrimaPagina.xml' },
     ],
     rotateInterval: 9 * 1000, // 9 secondi per notizia
     maxItems: 25,
