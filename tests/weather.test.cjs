@@ -101,3 +101,58 @@ test('chiave rifiutata dall\'API: stato "error" con messaggio chiaro', async () 
   assert.equal(ctx.document.getElementById('weather-widget').dataset.status, 'error');
   assert.match(badge.textContent, /chiave non valida/i);
 });
+
+test('vento presente: mostra km/h con direzione', () => {
+  const ctx = setup({ apiKey: 'k' });
+  ctx.document.getElementById('weather-wind').classList.add('is-missing');
+  ctx.renderWindAndRain({ wind: { speed: 5, deg: 270, gust: 8 }, main: { humidity: 50 } });
+  const wind = ctx.document.getElementById('weather-wind');
+  assert.match(wind.textContent, /18 O km\/h/);
+  assert.equal(wind.classList.contains('is-missing'), false);
+});
+
+test('vento assente: dice "n/d" invece di inventare un numero', () => {
+  const ctx = setup({ apiKey: 'k' });
+  ctx.renderWindAndRain({ main: { humidity: 50 } });
+  assert.match(ctx.document.getElementById('weather-wind').textContent, /n\/d/);
+});
+
+test('pioggia assente ma umidità presente: "asciutto", non "n/d"', () => {
+  const ctx = setup({ apiKey: 'k' });
+  ctx.renderWindAndRain({ wind: { speed: 1 }, main: { humidity: 40 } });
+  assert.match(ctx.document.getElementById('weather-rain').textContent, /asciutto/);
+});
+
+test('pioggia in corso: mostra i millimetri', () => {
+  const ctx = setup({ apiKey: 'k' });
+  ctx.renderWindAndRain({ wind: { speed: 1 }, main: { humidity: 90 }, rain: { '1h': 2.4 } });
+  assert.match(ctx.document.getElementById('weather-rain').textContent, /2\.4 mm/);
+});
+
+test('verifica chiave: 32 caratteri esadecimali riconosciuti come validi', async () => {
+  const key = 'a'.repeat(32);
+  const ctx = setup({
+    apiKey: key,
+    fetchImpl: async () => ({ ok: true, json: async () => ({ cod: 200, name: 'Sinnai', main: { temp: 19 } }) }),
+  });
+  await ctx.verifyWeatherKey(key);
+  const status = ctx.document.getElementById('weather-key-status');
+  assert.match(status.textContent, /valida/);
+  assert.equal(status.className.includes('ok'), true);
+});
+
+test('verifica chiave: chiave troncata viene segnalata con la lunghezza', async () => {
+  const ctx = setup({ apiKey: 'x' });
+  await ctx.verifyWeatherKey('abc123');
+  assert.match(ctx.document.getElementById('weather-key-status').textContent, /6 caratteri/);
+});
+
+test('verifica chiave: 401 spiega l\'attesa di attivazione', async () => {
+  const key = 'b'.repeat(32);
+  const ctx = setup({
+    apiKey: key,
+    fetchImpl: async () => ({ ok: true, json: async () => ({ cod: 401, message: 'Invalid API key' }) }),
+  });
+  await ctx.verifyWeatherKey(key);
+  assert.match(ctx.document.getElementById('weather-key-status').textContent, /10 minuti/);
+});

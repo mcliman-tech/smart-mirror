@@ -172,9 +172,16 @@ body::after {
   display: flex;
   gap: 20px;
   justify-content: flex-end;
+  flex-wrap: wrap;
   margin-top: 8px;
   font-size: 0.95rem;
   opacity: 0.6;
+}
+
+/* Dato che il servizio meteo non fornisce: si vede che manca. */
+.weather-details .is-missing {
+  opacity: 0.55;
+  font-style: italic;
 }
 
 .weather-location {
@@ -737,6 +744,22 @@ body::after {
 
 .setting-group input:focus {
   border-color: #64c8ff;
+}
+
+/* Esito della verifica della chiave meteo, dentro il pannello impostazioni. */
+.weather-key-status {
+  margin-top: 8px;
+  font-size: 0.82rem;
+  line-height: 1.4;
+  min-height: 1em;
+}
+
+.weather-key-status.ok {
+  color: #7ee787;
+}
+
+.weather-key-status.ko {
+  color: #ff9b7a;
 }
 
 .btn-test {

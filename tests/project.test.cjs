@@ -92,3 +92,17 @@ test('ogni feed notizie ha un URL diretto (niente function server-side)', () => 
 test('app.js non chiama più la function Netlify', () => {
   assert.doesNotMatch(read('app.js'), /\.netlify\/functions/);
 });
+
+test('il modello vocale è caricato con URL assoluto, non relativo', () => {
+  const voice = read('voice.js');
+  // Un percorso relativo dentro il worker di Vosk viene risolto rispetto al
+  // blob, non alla pagina: su GitHub Pages (sottopercorso) dava 404.
+  assert.doesNotMatch(voice, /new Model\('\.\/models\//);
+  assert.match(voice, /new URL\('models\/vosk-it-small-0\.22\.tar\.gz', window\.location\.href\)/);
+});
+
+test('l\'URL assoluto del modello punta alla sottocartella giusta', () => {
+  const base = 'https://mcliman-tech.github.io/smart-mirror/';
+  const resolved = new URL('models/vosk-it-small-0.22.tar.gz', base).href;
+  assert.equal(resolved, 'https://mcliman-tech.github.io/smart-mirror/models/vosk-it-small-0.22.tar.gz');
+});

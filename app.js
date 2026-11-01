@@ -93,9 +93,16 @@ async function updateWeather() {
     const data = await res.json();
 
     if (data.cod !== 200) {
-      console.error('Weather API error:', data.message);
+      console.error('Weather API error:', data.cod, data.message);
       showDemoWeather();
-      setWeatherStatus('error', 'Meteo non disponibile · chiave non valida?');
+      const reason = Number(data.cod) === 401
+        ? 'chiave non valida o non ancora attiva (può servire fino a 2 ore)'
+        : Number(data.cod) === 404
+          ? `città "${city}" non trovata`
+          : Number(data.cod) === 429
+            ? 'troppe richieste, limite giornaliero raggiunto'
+            : 'errore del servizio meteo';
+      setWeatherStatus('error', `Meteo non disponibile · ${reason}`);
       return;
     }
 
@@ -106,7 +113,7 @@ async function updateWeather() {
     $('#weather-temp').textContent = `${Math.round(data.main.temp)}°`;
     $('#weather-desc').textContent = data.weather[0].description;
     $('#weather-humidity').textContent = `💧 ${data.main.humidity}%`;
-    $('#weather-wind').textContent = `💨 ${Math.round(data.wind.speed * 3.6)} km/h`;
+    renderWindAndRain(data);
     $('#weather-location').textContent = `📍 ${data.name}`;
     setWeatherStatus('live', '');
 
@@ -121,6 +128,109 @@ async function updateWeather() {
     console.error('Weather fetch error:', err);
     showDemoWeather();
     setWeatherStatus('error', 'Meteo non disponibile · riprovo tra 2 minuti');
+  }
+}
+
+// Vento e pioggia: se un dato manca lo diciamo, non lo inventiamo.
+// OpenWeatherMap manda `rain`/`snow` solo quando piove o nevica davvero:
+// l'assenza del campo significa "asciutto", non "dato mancante".
+function renderWindAndRain(data) {
+  const windEl = $('#weather-wind');
+  const rainEl = $('#weather-rain');
+  if (!windEl || !rainEl) return;
+
+  // ── Vento ──
+  const speed = data.wind?.speed;
+  if (Number.isFinite(speed)) {
+    const kmh = Math.round(speed * 3.6);
+    const gust = data.wind?.gust;
+    const dir = Number.isFinite(data.wind?.deg) ? ` ${windDirectionLabel(data.wind.deg)}` : '';
+    windEl.textContent = `💨 ${kmh}${dir} km/h`;
+    windEl.title = Number.isFinite(gust)
+      ? `Vento ${kmh} km/h, raffiche fino a ${Math.round(gust * 3.6)} km/h`
+      : `Vento ${kmh} km/h`;
+    windEl.classList.remove('is-missing');
+  } else {
+    windEl.textContent = '💨 vento n/d';
+    windEl.title = 'Il servizio meteo non fornisce il vento per questa località.';
+    windEl.classList.add('is-missing');
+  }
+
+  // ── Pioggia ──
+  const rain1h = data.rain?.['1h'];
+  const rain3h = data.rain?.['3h'];
+  const snow1h = data.snow?.['1h'];
+  const snow3h = data.snow?.['3h'];
+  const mm = Number.isFinite(rain1h) ? `${rain1h} mm/ultima ora`
+    : Number.isFinite(rain3h) ? `${rain3h} mm/3h`
+    : null;
+  const snow = Number.isFinite(snow1h) ? `${snow1h} cm neve`
+    : Number.isFinite(snow3h) ? `${snow3h} cm neve/3h`
+    : null;
+
+  if (mm || snow) {
+    rainEl.textContent = `🌧️ ${[mm, snow].filter(Boolean).join(' · ')}`;
+    rainEl.title = 'Precipitazioni misurate nella località.';
+    rainEl.classList.remove('is-missing');
+  } else if (Number.isFinite(data.main?.humidity)) {
+    // Nessun campo rain = non sta piovendo adesso.
+    rainEl.textContent = '🌧️ asciutto';
+    rainEl.title = 'Nessuna precipitazione in corso secondo il servizio meteo.';
+    rainEl.classList.remove('is-missing');
+  } else {
+    rainEl.textContent = '🌧️ pioggia n/d';
+    rainEl.title = 'Il servizio meteo non fornisce le precipitazioni.';
+    rainEl.classList.add('is-missing');
+  }
+}
+
+function windDirectionLabel(deg) {
+  const names = ['N', 'NE', 'E', 'SE', 'S', 'SO', 'O', 'NO'];
+  return names[Math.round(((deg % 360) / 45)) % 8];
+}
+
+// ============================================
+// DIAGNOSI DELLA CHIAVE METEO
+// Dice esattamente cosa non va, invece di un generico "chiave non valida".
+// ============================================
+async function verifyWeatherKey(apiKey) {
+  const target = $('#weather-key-status');
+  const report = (text, ok) => {
+    if (!target) return;
+    target.textContent = text;
+    target.className = `weather-key-status ${ok ? 'ok' : 'ko'}`;
+  };
+
+  if (!apiKey) {
+    report('Nessuna chiave inserita.', false);
+    return;
+  }
+  if (!/^[a-f0-9]{32}$/i.test(apiKey)) {
+    report(`La chiave ha ${apiKey.length} caratteri: dovrebbero essere 32. Controlla di aver copiato tutta la riga.`, false);
+    return;
+  }
+
+  report('Verifico la chiave…', true);
+  const city = CONFIG.weather.city;
+  try {
+    const res = await fetch(
+      `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(city)}&units=metric&lang=it&appid=${apiKey}`
+    );
+    const data = await res.json();
+
+    if (Number(data.cod) === 200) {
+      report(`✅ Chiave valida · ${data.name}: ${Math.round(data.main.temp)}°`, true);
+      return;
+    }
+
+    const messages = {
+      401: 'Chiave non valida o non ancora attiva. Una chiave nuova impiega da 10 minuti a 2 ore prima di funzionare.',
+      429: 'Troppe richieste: il piano gratuito è stato superato per oggi.',
+      404: `Città non trovata: "${city}". Prova con il formato "Sinnai,IT".`,
+    };
+    report(`❌ ${messages[Number(data.cod)] || data.message || 'Risposta inattesa dall\'API.'}`, false);
+  } catch (error) {
+    report('❌ Impossibile contattare OpenWeatherMap: controlla la connessione.', false);
   }
 }
 
@@ -793,7 +903,10 @@ function testLightWebhook(index, isTurnOn) {
 }
 
 function saveSettings() {
-  const weatherApi = $('#setting-weather-api').value.trim();
+  // iOS aggiunge spesso spazi o un a capo quando si incolla: li togliamo
+  // e scartiamo i caratteri invisibili che rompono la chiave.
+  const weatherApi = $('#setting-weather-api').value
+    .replace(/[\s\u200B-\u200D\uFEFF]/g, '');
   const city = $('#setting-city').value.trim();
   const webhookValues = [0, 1].map(i => ({
     on: $(`#setting-light${i + 1}-url-on`).value.trim(),
@@ -818,6 +931,10 @@ function saveSettings() {
   localStorage.setItem('sm_city', city || 'Sinnai, Sardegna, IT');
   CONFIG.weather.apiKey = weatherApi;
   CONFIG.weather.city = city || 'Sinnai, Sardegna, IT';
+
+  // Diagnosi immediata: la chiave viene provata subito e l'esito è visibile
+  // sia nel pannello impostazioni sia sull'etichetta del widget meteo.
+  verifyWeatherKey(weatherApi);
 
   loadAlexaLights();
 

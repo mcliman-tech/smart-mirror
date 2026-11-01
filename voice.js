@@ -246,7 +246,12 @@ class VoiceControl {
       return Promise.reject(new Error('Vosk: la libreria di riconoscimento non è disponibile.'));
     }
 
-    const model = new Model('./models/vosk-it-small-0.22.tar.gz', -1);
+    // URL ASSOLUTO, non relativo: Vosk crea un worker da un blob e dentro il
+    // worker un percorso relativo verrebbe risolto rispetto al blob, non alla
+    // pagina. Con il sito in un sottopercorso (GitHub Pages: /smart-mirror/)
+    // questo causava un 404 sul modello.
+    const modelUrl = new URL('models/vosk-it-small-0.22.tar.gz', window.location.href).href;
+    const model = new Model(modelUrl, -1);
     this.voskModel = model;
 
     return new Promise((resolve, reject) => {
@@ -265,7 +270,13 @@ class VoiceControl {
       };
       const onError = event => {
         cleanup();
-        reject(new Error(`Vosk: ${event.detail?.error || 'errore durante il caricamento del modello.'}`));
+        const detail = event.detail?.error || 'errore durante il caricamento del modello.';
+        // 404 sul modello è l'errore più comune: se il file non è dove ci
+        // aspettiamo (es. cartella pubblicata diversa), lo segnaliamo chiaro.
+        const message = /404|not found/i.test(detail)
+          ? `Il file del modello vocale non è raggiungibile (404): controlla che models/vosk-it-small-0.22.tar.gz sia stato pubblicato. Dettaglio: ${detail}`
+          : `Vosk: ${detail}`;
+        reject(new Error(message));
       };
       const timeout = setTimeout(() => {
         cleanup();
