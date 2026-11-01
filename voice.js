@@ -104,6 +104,7 @@ class VoiceControl {
       input.value = '';
       this.recognizedCommand = '';
       fallbackForm.hidden = true;
+      this.hideKeyboardButton();
       this.hideVoiceStatus();
       this.processCommand(command);
     });
@@ -544,20 +545,49 @@ class VoiceControl {
     const fallbackForm = document.getElementById('voice-fallback');
     const input = document.getElementById('voice-command-input');
     if (fallbackForm) fallbackForm.hidden = false;
-    if (input) {
-      // Dentro l'app (Aggiungi a Home) il microfono della tastiera è
-      // l'unico modo di dettare: diciamolo chiaramente.
-      const standalone = window.navigator.standalone === true ||
-        (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
-      input.placeholder = standalone
-        ? 'Tocca qui, poi il microfono sulla tastiera e parla'
-        : 'Scrivi o detta con il microfono della tastiera';
-      input.value = '';
-      input.focus();
-      // Su iPadOS la tastiera a volte compare solo dopo un tocco reale:
-      // riproviamo con un piccolo ritardo.
-      setTimeout(() => input.focus(), 250);
+    if (!input) return;
+
+    // Dentro l'app (Aggiungi a Home) il microfono della tastiera è
+    // l'unico modo di dettare: diciamolo chiaramente.
+    const standalone = window.navigator.standalone === true ||
+      (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+    input.placeholder = standalone
+      ? 'Tocca qui, poi il microfono sulla tastiera e parla'
+      : 'Scrivi o detta con il microfono della tastiera';
+    input.value = '';
+
+    // iPadOS apre la tastiera solo dentro un gesto dell'utente. Un focus()
+    // chiamato dopo un errore asincrono viene ignorato: quindi mostriamo
+    // un pulsante grande che, al tocco vero, apre la tastiera.
+    this.showKeyboardButton(input);
+  }
+
+  // Pulsante che si tocca davvero: è l'unico modo affidabile per aprire
+  // la tastiera su iPadOS.
+  showKeyboardButton(input) {
+    let button = document.getElementById('voice-keyboard-btn');
+    if (!button) {
+      button = document.createElement('button');
+      button.type = 'button';
+      button.id = 'voice-keyboard-btn';
+      button.className = 'voice-keyboard-btn';
+      button.textContent = '⌨️ Tocca qui per dettare';
+      button.addEventListener('touchend', event => {
+        event.preventDefault();
+        input.focus();
+        // Il tocco è un gesto dell'utente: qui la tastiera si apre.
+        try { input.setSelectionRange(input.value.length, input.value.length); } catch (e) {}
+      }, { passive: false });
+      button.addEventListener('click', () => input.focus());
+      const host = document.getElementById('voice-indicator');
+      (host || document.body).appendChild(button);
     }
+    button.hidden = false;
+  }
+
+  hideKeyboardButton() {
+    const button = document.getElementById('voice-keyboard-btn');
+    if (button) button.hidden = true;
   }
 
   sleep() {

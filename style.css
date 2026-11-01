@@ -1254,3 +1254,22 @@ body::after {
   font-size: 0.85rem;
   cursor: pointer;
 }
+
+/* Pulsante per aprire la tastiera: su iPadOS il focus() programmatico
+   viene ignorato, serve un tocco vero dell'utente. */
+.voice-keyboard-btn {
+  padding: 12px 20px;
+  margin-left: 8px;
+  border: 1px solid rgba(100, 200, 255, 0.5);
+  border-radius: 14px;
+  background: rgba(100, 200, 255, 0.22);
+  color: #fff;
+  font: inherit;
+  font-size: 1rem;
+  pointer-events: all;
+  cursor: pointer;
+}
+
+.voice-keyboard-btn[hidden] {
+  display: none;
+}
