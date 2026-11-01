@@ -518,13 +518,18 @@ function loadAlexaLights() {
   } catch (e) {
     console.warn('Errore lettura localStorage luci:', e);
   }
+
+  // Lo stato salvato è l'unica verità all'avvio: il controllore deve
+  // conoscerlo, altrimenti con un trigger toggle il primo tocco sbaglia.
+  const controller = getLightController();
+  CONFIG.alexa.lights.forEach((light, index) => {
+    controller.setKnown(index, Boolean(light.state));
+  });
 }
 
 function renderAlexaLights() {
   const container = $('#alexa-grid');
   if (!container) return;
-
-  loadAlexaLights();
 
   const lights = CONFIG.alexa.lights;
   const activeCount = lights.filter(l => l.state).length;
@@ -585,11 +590,8 @@ async function setAlexaLight(index, targetState) {
   if (!light) return;
 
   const nextState = Boolean(targetState);
-  let targetUrl = nextState
-    ? (light.webhookOn || light.webhook)
-    : (light.webhookOff || light.webhook);
 
-  if (!targetUrl || !isValidWebhookUrl(targetUrl)) {
+  if (!hasAnyWebhook(light)) {
     const countEl = $('#alexa-active-count');
     if (countEl) {
       countEl.textContent = 'Configura i webhook ⚙️';
@@ -601,22 +603,101 @@ async function setAlexaLight(index, targetState) {
     return;
   }
 
-  const singleWebhook = !light.webhookOff && Boolean(light.webhookOn || light.webhook);
-  if (singleWebhook && !targetUrl.includes('activate.php')) {
+  // Passa dal controllore: una sola richiesta in volo per luce, niente
+  // raffiche di accensione/spegnimento con i trigger toggle.
+  const controller = getLightController();
+  const result = await controller.request(index, nextState, {
+    urlFor: state => buildLightUrl(light, state),
+  });
+
+  if (result && result.skipped === 'already') {
+    // Già nello stato richiesto: nessun invio, nessun suono, nessun lampeggio.
+    return;
+  }
+  if (result && result.sent !== undefined) {
+    // Feedback sonoro se voiceControl è pronto
+    if (window.voiceControl && typeof window.voiceControl.playChime === 'function') {
+      window.voiceControl.playChime('wake');
+    }
+  }
+}
+
+function hasAnyWebhook(light) {
+  return Boolean(light.webhookOn || light.webhookOff || light.webhook);
+}
+
+// Costruisce l'URL da chiamare per portare la luce in `state`.
+// Con webhook separati ON/OFF l'invio è idempotente (ripetibile).
+// Con un unico trigger toggle l'URL è lo stesso per entrambi gli stati.
+function buildLightUrl(light, state) {
+  const onUrl = (light.webhookOn || '').trim();
+  const offUrl = (light.webhookOff || '').trim();
+  const singleUrl = (light.webhook || '').trim();
+
+  // Con un solo trigger l'URL è lo stesso per accendere e spegnere:
+  // è un interruttore, non due comandi.
+  if (!offUrl && !onUrl) return singleUrl && isValidWebhookUrl(singleUrl) ? singleUrl : '';
+
+  const targetUrl = state
+    ? (onUrl || singleUrl || offUrl)
+    : (offUrl || onUrl || singleUrl);
+
+  if (!targetUrl || !isValidWebhookUrl(targetUrl)) return '';
+
+  // virtualsmarthome: activate.php fa da toggle, non accetta un parametro
+  // di stato affidabile: si manda così com'è, senza aggiungere nulla.
+  if (targetUrl.includes('activate.php')) return targetUrl;
+
+  // Un solo trigger (toggle) e nessun OFF dedicato: stesso URL, nessun
+  // parametro inventato — l'interruttore sa invertire da solo.
+  const hasSeparateOff = Boolean(offUrl && isValidWebhookUrl(offUrl));
+  const hasSeparateOn = Boolean(onUrl && isValidWebhookUrl(onUrl));
+  if (!hasSeparateOff || !hasSeparateOn) {
     const requestUrl = new URL(targetUrl);
-    requestUrl.searchParams.set('state', nextState ? 'on' : 'off');
-    targetUrl = requestUrl.href;
+    if (light.sendStateParam) {
+      requestUrl.searchParams.set('state', state ? 'on' : 'off');
+    }
+    return requestUrl.href;
   }
 
-  light.state = nextState;
-  saveAlexaLightsState();
-  renderAlexaLights();
-  sendWebhook(targetUrl);
+  return targetUrl;
+}
 
-  // Feedback sonoro se voiceControl è pronto
-  if (window.voiceControl && typeof window.voiceControl.playChime === 'function') {
-    window.voiceControl.playChime('wake');
+// Un solo controllore per tutta l'app.
+let lightControllerInstance = null;
+function getLightController() {
+  if (lightControllerInstance) return lightControllerInstance;
+  const factory = window.SmartMirrorLights?.createLightController;
+  if (!factory) {
+    // Ripiego: senza lights.js si comporta come prima.
+    lightControllerInstance = {
+      request: async (index, state, handlers) => {
+        const url = handlers.urlFor(state);
+        if (!url) return { skipped: 'no-url' };
+        sendWebhook(url);
+        return { sent: state };
+      },
+      setKnown: () => {},
+      getKnown: () => null,
+    };
+    return lightControllerInstance;
   }
+
+  lightControllerInstance = factory({
+    send: (url) => {
+      sendWebhook(url);
+      return Promise.resolve();
+    },
+    onChange: (index, state) => {
+      const light = CONFIG.alexa.lights[index];
+      if (!light) return;
+      light.state = state;
+      saveAlexaLightsState();
+      renderAlexaLights();
+    },
+    log: (message) => console.log(message),
+  });
+  return lightControllerInstance;
 }
 
 async function toggleAlexaLight(index) {
@@ -900,6 +981,20 @@ function testLightWebhook(index, isTurnOn) {
   }
 
   sendWebhook(testUrl);
+
+  // Il test cambia lo stato reale della luce: allineiamo il controllore,
+  // altrimenti il prossimo tocco invertirebbe partendo da un'idea sbagliata.
+  if (hasAnyWebhook(CONFIG.alexa.lights[index])) {
+    const isToggle = url.includes('activate.php') || !CONFIG.alexa.lights[index].webhookOff;
+    if (isToggle) {
+      getLightController().setKnown(index, null);
+    } else {
+      getLightController().setKnown(index, isTurnOn);
+      CONFIG.alexa.lights[index].state = isTurnOn;
+      saveAlexaLightsState();
+    }
+  }
+
   alert(`Trigger inviato a ${isTurnOn ? 'ON (Accendi)' : 'OFF (Spegni)'}!\nControlla se Alexa ha risposto.`);
 }
 
@@ -972,6 +1067,12 @@ function saveSettings() {
   }
 
   saveAlexaLightsState();
+
+  // Webhook appena cambiati: il controllore riparte da zero, così non
+  // confronta con uno stato noto che si riferisce alla vecchia configurazione.
+  lightControllerInstance = null;
+  loadAlexaLights();
+
   renderAlexaLights();
 
   toggleSettings();

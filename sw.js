@@ -27,6 +27,7 @@ const ASSETS_TO_CACHE = [
   './version.js',
   './style.css',
   './config.js',
+  './lights.js',
   './app.js',
   './vendor/vosk-browser-0.0.8.js',
   './voice.js',

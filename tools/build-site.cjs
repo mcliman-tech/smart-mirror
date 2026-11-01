@@ -21,6 +21,7 @@ const INCLUDE = [
   'version.js',
   'style.css',
   'config.js',
+  'lights.js',
   'app.js',
   'voice.js',
   'sw.js',
