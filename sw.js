@@ -1,19 +1,26 @@
 /* ============================================
    SMART MIRROR — Service Worker (Offline PWA)
 
-   La versione arriva da version.js (unico punto di verità).
-   Cambiando il numero lì, il browser considera il service worker
-   nuovo, ricarica gli asset e cancella la cache vecchia.
+   Versione 2: strategia "network-first" per HTML e JS.
+
+   Perché è cambiata: la versione precedente serviva prima la cache, quindi
+   dopo un deploy l'iPad continuava a mostrare i file vecchi (e con il
+   vecchio codice Vosk dava 404 sul modello). Ora:
+
+   - HTML, JS, CSS, manifest → prima la rete (max 3 s), cache solo se offline.
+     Così un deploy si vede al primo caricamento.
+   - Immagini e font → cache-first (cambiano raramente).
+   - Modello vocale e feed RSS → mai in cache qui.
+
+   La versione in uso viene da version.js (unico punto di verità).
    ============================================ */
 
 importScripts('./version.js');
 
 const VERSION = self.SM_VERSION || 'dev';
 const CACHE_NAME = `smart-mirror-${VERSION}`;
+const NETWORK_TIMEOUT = 3000;
 
-// File da tenere in cache per l'uso offline.
-// Nota: nessun parametro ?v= qui — la query è gestita dal browser,
-// quello che conta è che questi file siano disponibili senza rete.
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
@@ -28,35 +35,27 @@ const ASSETS_TO_CACHE = [
   './icons/icon-512.png',
 ];
 
-// Host di cui è ammesso mettere in cache le risposte (dati, non segreti).
 const CACHEABLE_API_HOSTS = new Set([
   'api.open-meteo.com',
   'air-quality-api.open-meteo.com',
 ]);
 
-// ── Install: cache all core assets ──
+// ── Install ──
 self.addEventListener('install', (event) => {
-  console.log('[SW] Installing Smart Mirror', VERSION);
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then(cache => cache.addAll(ASSETS_TO_CACHE))
+      .catch(err => console.warn('[SW] Precache incompleto:', err))
       .then(() => self.skipWaiting())
-      .catch(err => {
-        // Un asset mancante non deve bloccare l'aggiornamento del resto.
-        console.warn('[SW] Precache incompleto:', err);
-        return self.skipWaiting();
-      })
   );
 });
 
-// ── Activate: clean old caches ──
+// ── Activate: via tutte le cache vecchie, subito ──
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys()
       .then(keys => Promise.all(
-        keys
-          .filter(key => key !== CACHE_NAME)
-          .map(key => caches.delete(key))
+        keys.filter(key => key !== CACHE_NAME).map(key => caches.delete(key))
       ))
       .then(() => self.clients.claim())
   );
@@ -68,25 +67,16 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(event.request.url);
 
-  // Modello vocale (~48 MB): mai in cache del service worker, la gestisce
-  // il browser con gli header di cache. Intercettarla qui la rallenterebbe.
-  if (url.pathname.startsWith('/models/')) {
-    return;
-  }
+  // Modello vocale (~48 MB): mai qui, la gestisce il browser.
+  if (url.pathname.startsWith('/models/')) return;
 
-  // Feed RSS non raggiungibili direttamente dal browser (niente CORS):
-  // la rete li gestisce, nessuna cache di risposte di terze parti.
-  if (/rss|feed|\/sitemaps\//i.test(url.pathname)) {
-    return;
-  }
+  // Feed RSS di terze parti: rete pura.
+  if (/rss|feed|\/sitemaps\//i.test(url.pathname)) return;
 
-  // API di dati: network-first, fallback alla copia in cache se offline.
-  // Solo host in whitelist e solo se la URL non contiene segreti in chiaro.
+  // API di dati: network-first con fallback in cache.
   if (url.hostname !== self.location.hostname) {
     const hasSecretInUrl = /[?&](appid|api_?key|token|secret)=/i.test(url.search);
-    const isCacheable = CACHEABLE_API_HOSTS.has(url.hostname) && !hasSecretInUrl;
-
-    if (!isCacheable) return; // lascia fare al browser
+    if (!CACHEABLE_API_HOSTS.has(url.hostname) || hasSecretInUrl) return;
 
     event.respondWith(
       fetch(event.request)
@@ -102,36 +92,71 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Asset locali: cache-first, poi rete.
-  event.respondWith(
-    caches.match(event.request, { ignoreSearch: true })
-      .then(cached => cached || fetch(event.request).then(response => {
-        if (response.ok) {
-          const copy = response.clone();
-          caches.open(CACHE_NAME).then(cache => cache.put(event.request, copy));
-        }
-        return response;
-      }))
-  );
-});
+  const isDocument = event.request.mode === 'navigate' ||
+    (event.request.headers.get('accept') || '').includes('text/html');
+  const isCode = /\.(?:js|css|json)$/i.test(url.pathname);
+  const isVersionFile = url.pathname.endsWith('/version.js');
 
-self.addEventListener('message', (event) => {
-  if (event.data === 'skipWaiting') {
-    self.skipWaiting();
+  // Codice e HTML: prima la rete, così un aggiornamento si vede subito.
+  if (isDocument || isCode || isVersionFile) {
+    event.respondWith(networkFirst(event.request));
+    return;
   }
+
+  // Immagini, icone, font: cache-first.
+  event.respondWith(cacheFirst(event.request));
 });
 
-// ── Sorveglianza: lo specchio deve restare aperto per giorni ──
-// Controlla periodicamente se c'è una versione nuova; se c'è, la installa
-// e ricarica le schede aperte una sola volta, così l'iPad si aggiorna da solo
-// senza che nessuno debba ricordarsi di ricaricare la pagina.
+async function networkFirst(request) {
+  const cache = await caches.open(CACHE_NAME);
+  try {
+    const response = await promiseWithTimeout(fetch(request), NETWORK_TIMEOUT);
+    if (response && response.ok) {
+      cache.put(request, response.clone()).catch(() => {});
+      return response;
+    }
+    throw new Error(`HTTP ${response && response.status}`);
+  } catch (error) {
+    const cached = await cache.match(request, { ignoreSearch: true });
+    if (cached) return cached;
+    // Per le navigazioni offline, l'HTML in cache è meglio di un errore.
+    if (request.mode === 'navigate') {
+      const shell = await cache.match('./index.html', { ignoreSearch: true });
+      if (shell) return shell;
+    }
+    throw error;
+  }
+}
+
+async function cacheFirst(request) {
+  const cache = await caches.open(CACHE_NAME);
+  const cached = await cache.match(request, { ignoreSearch: true });
+  if (cached) return cached;
+  const response = await fetch(request);
+  if (response && response.ok) {
+    cache.put(request, response.clone()).catch(() => {});
+  }
+  return response;
+}
+
+function promiseWithTimeout(promise, ms) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), ms)),
+  ]);
+}
+
+// ── Aggiornamento automatico ──
+self.addEventListener('message', (event) => {
+  if (event.data === 'skipWaiting') self.skipWaiting();
+});
+
 self.addEventListener('activate', () => {
   const check = () => self.registration.update().catch(() => {});
-  setInterval(check, 60 * 60 * 1000); // ogni ora
+  setInterval(check, 60 * 60 * 1000);
 });
 
 self.addEventListener('controllerchange', () => {
-  // Evita un loop di ricariche: una sola per attivazione.
   if (self.__reloadedAfterUpdate) return;
   self.__reloadedAfterUpdate = true;
   self.clients.matchAll({ type: 'window', includeUncontrolled: true })

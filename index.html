@@ -219,12 +219,30 @@
     })();
   </script>
   <script>
-    // Register Service Worker for offline PWA
+    // Service worker: registrato con ?v=VERSIONE, così ogni deploy crea un
+    // worker nuovo e l'iPad non resta bloccato sulla copia vecchia.
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('./sw.js')
-        .then(reg => console.log('🪞 SW registered:', reg.scope))
-        .catch(err => console.log('SW error:', err));
+      var swUrl = './sw.js?v=' + (window.SM_VERSION || 'dev');
+      navigator.serviceWorker.register(swUrl, { updateViaCache: 'none' })
+        .then(function (reg) {
+          console.log('🪞 SW registrato:', reg.scope);
+          reg.update();
+        })
+        .catch(function (err) { console.log('SW error:', err); });
+
+      // Quando arriva un worker nuovo, ricarica una volta sola.
+      var reloading = false;
+      navigator.serviceWorker.addEventListener('controllerchange', function () {
+        if (reloading) return;
+        reloading = true;
+        window.location.reload();
+      });
     }
   </script>
+
+  <!-- Versione visibile: serve a capire subito quale copia sta girando -->
+  <div id="app-version" style="position:fixed;bottom:4px;left:8px;font-size:0.62rem;opacity:0.35;z-index:500;pointer-events:none;">
+    <script>document.write('v' + (window.SM_VERSION || '?'));</script>
+  </div>
 </body>
 </html>

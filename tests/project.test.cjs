@@ -106,3 +106,21 @@ test('l\'URL assoluto del modello punta alla sottocartella giusta', () => {
   const resolved = new URL('models/vosk-it-small-0.22.tar.gz', base).href;
   assert.equal(resolved, 'https://mcliman-tech.github.io/smart-mirror/models/vosk-it-small-0.22.tar.gz');
 });
+
+test('il service worker è registrato con la versione (niente cache bloccata)', () => {
+  const html = read('index.html');
+  assert.match(html, /sw\.js\?v=/, 'il service worker deve essere registrato con ?v=versione');
+  assert.match(html, /updateViaCache: 'none'/);
+});
+
+test('il service worker serve il codice prima dalla rete, non dalla cache', () => {
+  const sw = read('sw.js');
+  assert.match(sw, /networkFirst/);
+  assert.match(sw, /isCode/);
+  // Non deve esistere più la vecchia strategia cache-first per i file JS
+  assert.doesNotMatch(sw, /\/\/ Core assets → Cache first/);
+});
+
+test('la versione è visibile nella pagina', () => {
+  assert.match(read('index.html'), /id="app-version"/);
+});

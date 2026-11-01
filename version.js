@@ -9,4 +9,4 @@
    (es. app.js?v=20261101-1) così il browser ricarica i file nuovi.
    ============================================ */
 
-self.SM_VERSION = '20261101-7';
+self.SM_VERSION = '20261101-8';
