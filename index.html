@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="Smart Mirror">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="manifest" href="manifest.json?v=27">
+  <title>Smart Mirror</title>
+  <link rel="stylesheet" href="style.css?v=27">
+</head>
+<body>
+  <div class="mirror-container">
+
+    <!-- Top Left: Clock & Date -->
+    <div class="widget widget-clock" id="clock-widget">
+      <div class="time" id="clock-time">00:00</div>
+      <div class="seconds" id="clock-seconds">00</div>
+      <div class="date" id="clock-date">Caricamento...</div>
+      <div class="greeting" id="clock-greeting"></div>
+    </div>
+
+    <!-- Top Right: Weather -->
+    <div class="widget widget-weather" id="weather-widget">
+      <div class="weather-header">
+        <div class="weather-icon" id="weather-icon">🌤️</div>
+        <div class="weather-temp" id="weather-temp">--°</div>
+      </div>
+      <div class="weather-desc" id="weather-desc">Caricamento...</div>
+      <div class="weather-details">
+        <span id="weather-humidity">💧 --%</span>
+        <span id="weather-wind">💨 -- km/h</span>
+      </div>
+      <div class="weather-location" id="weather-location">📍 --</div>
+      <div class="weather-forecast" id="weather-forecast"></div>
+      <div class="environment-summary" aria-label="Dati ambientali esterni per Sinnai">
+        <div class="environment-metrics">
+          <span id="air-quality">🌫️ Aria —</span>
+          <span id="uv-index">☀️ UV max —</span>
+          <span id="sunrise-time">🌅 Alba —</span>
+          <span id="sunset-time">🌇 Tramonto —</span>
+        </div>
+        <a class="environment-credit" href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer">Dati ambientali: Open-Meteo · stime esterne, non misure in casa</a>
+      </div>
+    </div>
+
+    <!-- Middle Left: Big Calendar Widget -->
+    <div class="widget widget-calendar" id="calendar-widget">
+      <div class="calendar-card">
+        <div class="calendar-top">
+          <div class="calendar-month-year" id="cal-month-year">OTTOBRE 2026</div>
+          <div class="calendar-today-highlight">
+            <span class="cal-today-tag">OGGI</span>
+            <span class="cal-today-text" id="cal-today-full">Caricamento...</span>
+          </div>
+        </div>
+        <div class="calendar-weekdays">
+          <span>L</span><span>M</span><span>M</span><span>G</span><span>V</span><span>S</span><span>D</span>
+        </div>
+        <div class="calendar-days" id="calendar-days">
+          <!-- Generato via JavaScript -->
+        </div>
+      </div>
+    </div>
+
+    <!-- Middle Right: Alexa Lights Control -->
+    <div class="widget widget-alexa" id="alexa-widget">
+      <div class="alexa-card">
+        <div class="alexa-header">
+          <div class="alexa-header-left">
+            <span class="alexa-title">💡 Luci Alexa</span>
+            <button type="button" class="settings-btn-inline" onclick="toggleSettings()" title="Apri Impostazioni">⚙️</button>
+          </div>
+          <div class="alexa-status-text" id="alexa-active-count">Tutte spente</div>
+        </div>
+        <div class="alexa-grid" id="alexa-grid">
+          <!-- Generato via JavaScript -->
+        </div>
+      </div>
+    </div>
+
+    <!-- Bottom: Local, regional and national news -->
+    <div class="widget widget-news" id="news-widget">
+      <div class="news-card">
+        <div class="news-top-bar">
+          <div class="news-source-tag">📰 CAGLIARI · SARDEGNA · ITALIA</div>
+          <div class="news-controls">
+            <span class="news-counter" id="news-counter">1 / 10</span>
+            <button type="button" class="news-nav-btn" onclick="prevNews()" title="Precedente">‹</button>
+            <button type="button" class="news-nav-btn" onclick="nextNews()" title="Successiva">›</button>
+          </div>
+        </div>
+        <div class="news-body">
+          <div class="news-headline" id="news-title">Caricamento notizie locali e nazionali...</div>
+          <div class="news-summary" id="news-desc"></div>
+        </div>
+        <div class="news-footer">
+          <span class="news-category-badge" id="news-cat">Ultim'ora</span>
+          <span class="news-timestamp" id="news-time"></span>
+          <div class="news-timer-track"><div class="news-timer-bar" id="news-timer-bar"></div></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Settings overlay -->
+  <div class="settings-overlay" id="settings-overlay">
+    <div class="settings-panel">
+      <div class="settings-header">
+        <h2>⚙️ Impostazioni Smart Mirror</h2>
+        <button type="button" class="settings-close-x" onclick="toggleSettings()">✕</button>
+      </div>
+
+      <div class="setting-group">
+        <label>🌤️ OpenWeatherMap API Key</label>
+        <input type="text" id="setting-weather-api" placeholder="Inserisci API key OpenWeather...">
+      </div>
+      <div class="setting-group">
+        <label>📍 Città (meteo)</label>
+        <input type="text" id="setting-city" placeholder="es. Sinnai, Sardegna, IT" value="Sinnai, Sardegna, IT">
+      </div>
+      
+      <div class="settings-separator"></div>
+
+      <h3 style="margin: 15px 0 6px; font-weight: 500; font-size: 1.05rem;">💡 Collegamento Luci Alexa (Virtual Smart Home / Webhook)</h3>
+      <p style="font-size: 0.8rem; opacity: 0.7; margin-bottom: 14px; line-height: 1.4;">
+        Incolla gli URL delle routine generate su <strong>virtualsmarthome.xyz</strong>. Per ogni luce usa una routine ON e una OFF. Lascia OFF vuoto solo se l'unico trigger alterna davvero lo stato della luce; non riutilizzare un trigger che accende soltanto.
+      </p>
+      
+      <!-- Luce 1 -->
+      <div class="setting-light-box">
+        <div class="setting-group">
+          <label>Luce 1 — Nome:</label>
+          <input type="text" id="setting-light1-name" placeholder="es. Luce Cucina" value="Luce Cucina">
+        </div>
+        <div class="setting-group">
+          <label>URL Trigger Accendi (ON):</label>
+          <div style="display: flex; gap: 8px;">
+            <input type="text" id="setting-light1-url-on" placeholder="https://www.virtualsmarthome.xyz/.../activate.php?...">
+            <button type="button" class="btn-test" onclick="testLightWebhook(0, true)">Test ON</button>
+          </div>
+        </div>
+        <div class="setting-group">
+          <label>URL Trigger Spegni (OFF - facoltativo solo per un toggle):</label>
+          <div style="display: flex; gap: 8px;">
+            <input type="text" id="setting-light1-url-off" placeholder="Lascia vuoto se hai un solo trigger toggle">
+            <button type="button" class="btn-test" onclick="testLightWebhook(0, false)">Test OFF</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Luce 2 -->
+      <div class="setting-light-box" style="margin-top: 14px;">
+        <div class="setting-group">
+          <label>Luce 2 — Nome:</label>
+          <input type="text" id="setting-light2-name" placeholder="es. Luce Cortile" value="Luce Cortile">
+        </div>
+        <div class="setting-group">
+          <label>URL Trigger Accendi (ON):</label>
+          <div style="display: flex; gap: 8px;">
+            <input type="text" id="setting-light2-url-on" placeholder="https://www.virtualsmarthome.xyz/.../activate.php?...">
+            <button type="button" class="btn-test" onclick="testLightWebhook(1, true)">Test ON</button>
+          </div>
+        </div>
+        <div class="setting-group">
+          <label>URL Trigger Spegni (OFF - facoltativo solo per un toggle):</label>
+          <div style="display: flex; gap: 8px;">
+            <input type="text" id="setting-light2-url-off" placeholder="Lascia vuoto se hai un solo trigger toggle">
+            <button type="button" class="btn-test" onclick="testLightWebhook(1, false)">Test OFF</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-actions">
+        <button type="button" class="btn-save" onclick="saveSettings()">💾 Salva Modifiche</button>
+        <button type="button" class="btn-cancel" onclick="toggleSettings()">✖️ Annulla</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="config.js?v=27"></script>
+  <script src="app.js?v=27"></script>
+  <script src="vendor/vosk-browser-0.0.8.js?v=27"></script>
+  <script src="voice.js?v=27"></script>
+  <script>
+    // Register Service Worker for offline PWA
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('./sw.js')
+        .then(reg => console.log('🪞 SW registered:', reg.scope))
+        .catch(err => console.log('SW error:', err));
+    }
+  </script>
+</body>
+</html>

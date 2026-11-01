@@ -1,0 +1,10 @@
+[build]
+publish = "."
+
+[functions]
+directory = "netlify/functions"
+
+[[headers]]
+for = "/models/vosk-it-small-0.22.tar.gz"
+  [headers.values]
+  Cache-Control = "public, max-age=31536000, immutable"

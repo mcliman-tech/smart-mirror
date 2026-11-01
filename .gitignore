@@ -1,0 +1,20 @@
+# Sistema
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+.qodo/
+*.swp
+
+# Node
+node_modules/
+npm-debug.log*
+
+# Netlify
+.netlify/
+
+# Backup locali
+*.bak
+*.orig
