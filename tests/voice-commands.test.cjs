@@ -1,0 +1,107 @@
+/* ============================================
+   SMART MIRROR — Test dei comandi vocali
+
+   Il punto più fragile del progetto: processCommand() riconosce i comandi
+   con `includes()` su una lista di sinonimi. Qui blocchiamo il
+   comportamento attuale, così le modifiche future non rompono nulla
+   di nascosto.
+   ============================================ */
+
+const test = require('node:test');
+const assert = require('node:assert');
+const { loadApp } = require('./helpers/dom.cjs');
+
+// Istanza di VoiceControl con le risposte catturate invece che parlate.
+function createVoice() {
+  const ctx = loadApp();
+  const voice = new ctx.VoiceControl();
+  voice.spoken = [];
+  voice.respond = (text) => voice.spoken.push(text);
+  voice.speak = (text) => voice.spoken.push(text);
+  voice.highlightWidget = () => {};
+  voice.showVoiceStatus = () => {};
+  voice.hideVoiceStatus = () => {};
+  voice.setLightState = (index, state) => { voice.lastLight = { index, state }; };
+  return voice;
+}
+
+const say = (voice, command) => voice.processCommand(command);
+const lastSaid = (voice) => voice.spoken[voice.spoken.length - 1] || '';
+
+test('orario: "che ore sono" risponde con l\'ora', () => {
+  const voice = createVoice();
+  say(voice, 'che ore sono');
+  assert.match(lastSaid(voice), /Sono le ore \d+/);
+});
+
+test('data: "che giorno è" risponde con la data', () => {
+  const voice = createVoice();
+  say(voice, 'che giorno è oggi');
+  assert.match(lastSaid(voice), /Oggi è/);
+});
+
+test('luci: "accendi la luce in cucina" agisce sulla cucina', () => {
+  const voice = createVoice();
+  const result = say(voice, 'accendi la luce in cucina');
+  assert.equal(result.action, 'lights');
+  assert.equal(result.light, 'Luce Cucina');
+  assert.equal(result.on, true);
+  assert.match(lastSaid(voice), /Ho acceso Luce Cucina/);
+});
+
+test('luci: "spegni cortile" agisce sul cortile', () => {
+  const voice = createVoice();
+  const result = say(voice, 'spegni cortile');
+  assert.equal(result.light, 'Luce Cortile');
+  assert.equal(result.on, false);
+});
+
+test('luci: "accendi luce" senza ambiente non sceglie una luce a caso', () => {
+  const voice = createVoice();
+  const result = say(voice, 'accendi luce');
+  assert.equal(result.action, 'lights-unknown');
+  assert.equal(voice.lastLight, undefined);
+  assert.match(lastSaid(voice), /Quale luce/);
+});
+
+test('luci: "accendi tutte le luci" le accende tutte', () => {
+  const voice = createVoice();
+  const result = say(voice, 'accendi tutte le luci');
+  assert.equal(result.action, 'lights-all');
+  assert.equal(result.on, true);
+});
+
+test('timer: "timer 5 minuti" conferma i minuti', () => {
+  const voice = createVoice();
+  say(voice, 'timer 5 minuti');
+  assert.match(lastSaid(voice), /5 minuti/);
+});
+
+test('promemoria: "ricordami di comprare il latte" annota il testo', () => {
+  const voice = createVoice();
+  say(voice, 'ricordami di comprare il latte');
+  assert.match(lastSaid(voice), /comprare il latte/);
+});
+
+test('comando sconosciuto: non finge di aver capito', () => {
+  const voice = createVoice();
+  say(voice, 'asdfgh qwerty');
+  assert.match(lastSaid(voice), /Ho sentito/);
+});
+
+test('ricetta: restituisce una ricerca, non naviga subito', () => {
+  const voice = createVoice();
+  const result = say(voice, 'ricetta di carbonara');
+  assert.equal(result.action, 'search');
+  assert.match(result.url, /giallozafferano/);
+  assert.match(decodeURIComponent(result.url), /carbonara/);
+});
+
+test('spotify: "metti musica dei Pink Floyd" costruisce la ricerca', () => {
+  const voice = createVoice();
+  const result = say(voice, 'metti musica dei Pink Floyd');
+  assert.equal(result.action, 'open');
+  // Il comando arriva in minuscolo: la query deve contenere il nome, senza "dei"
+  assert.match(decodeURIComponent(result.url).toLowerCase(), /pink floyd/);
+  assert.doesNotMatch(decodeURIComponent(result.url).toLowerCase(), /dei pink/);
+});

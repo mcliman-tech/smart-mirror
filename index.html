@@ -7,9 +7,20 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
   <meta name="apple-mobile-web-app-title" content="Smart Mirror">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <link rel="manifest" href="manifest.json?v=27">
+  <link rel="manifest" href="manifest.json">
   <title>Smart Mirror</title>
-  <link rel="stylesheet" href="style.css?v=27">
+
+  <!-- Versione: deve essere il primo script, gli altri leggono da qui -->
+  <script src="version.js"></script>
+  <script>
+    // Cache-busting centralizzato: ?v= viene preso da version.js
+    (function () {
+      var v = (window.SM_VERSION || 'dev');
+      document.write(
+        '<link rel="stylesheet" href="style.css?v=' + v + '">'
+      );
+    })();
+  </script>
 </head>
 <body>
   <div class="mirror-container">
@@ -34,6 +45,7 @@
         <span id="weather-wind">💨 -- km/h</span>
       </div>
       <div class="weather-location" id="weather-location">📍 --</div>
+      <div class="weather-source" id="weather-source" hidden></div>
       <div class="weather-forecast" id="weather-forecast"></div>
       <div class="environment-summary" aria-label="Dati ambientali esterni per Sinnai">
         <div class="environment-metrics">
@@ -181,10 +193,20 @@
     </div>
   </div>
 
-  <script src="config.js?v=27"></script>
-  <script src="app.js?v=27"></script>
-  <script src="vendor/vosk-browser-0.0.8.js?v=27"></script>
-  <script src="voice.js?v=27"></script>
+  <script>
+    (function () {
+      var v = (window.SM_VERSION || 'dev');
+      var files = [
+        'config.js',
+        'app.js',
+        'vendor/vosk-browser-0.0.8.js',
+        'voice.js'
+      ];
+      files.forEach(function (file) {
+        document.write('<script src="' + file + '?v=' + v + '"><\/script>');
+      });
+    })();
+  </script>
   <script>
     // Register Service Worker for offline PWA
     if ('serviceWorker' in navigator) {

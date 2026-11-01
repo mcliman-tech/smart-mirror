@@ -461,6 +461,14 @@ class VoiceControl {
   processCommand(text) {
     const cmd = text.toLowerCase().trim();
 
+    // Prima di tutto: fermare la sveglia. "stop" deve funzionare subito,
+    // senza che altre parole del comando lo dirottino altrove.
+    if (this.activeAlarm && this.matches(cmd, ['stop', 'basta', 'silenzio', 'ferma', 'zitto', 'spegni la sveglia'])) {
+      this.stopAlarm();
+      this.respond('Sveglia fermata.');
+      return { action: 'alarm-stop' };
+    }
+
     if (this.matches(cmd, ['ricetta', 'ricette', 'come preparare', 'come si prepara'])) {
       return this.cmdRecipe(cmd);
     }
@@ -571,25 +579,43 @@ class VoiceControl {
     const query = recipe || 'ricette';
     const searchUrl = new URL('https://www.google.com/search');
     searchUrl.searchParams.set('q', `site:giallozafferano.it ${query} ricetta`);
+    const href = searchUrl.href;
     this.speak(`Cerco la ricetta di ${query} su Giallo Zafferano.`);
-    window.setTimeout(() => this.openSearch(searchUrl.href, true), 1800);
+    this.armReturnReload();
+    window.setTimeout(() => this.openSearch(href, true), 1800);
+    return { action: 'search', query, url: href };
   }
 
   cmdSpotify(command) {
     const query = command
       .replace(/^(.*?)(?:metti|riproduci|suona|ascolta|cerca)\s+/i, '')
-      .replace(/^(?:una\s+)?(?:canzone|musica)\s*(?:di|del|della|per)?\s*/i, '')
+      .replace(/^(?:una\s+)?(?:canzone|musica)\s*(?:di|dei|del|della|dell'|per)?\s*/i, '')
       .replace(/\s+su\s+spotify$/i, '')
       .trim();
     const destination = query
       ? `https://open.spotify.com/search/${encodeURIComponent(query)}`
       : 'https://open.spotify.com/';
     this.speak(query ? `Apro Spotify e cerco ${query}.` : 'Apro Spotify.');
+    this.armReturnReload();
     window.setTimeout(() => this.navigateTo(destination), 1800);
+    return { action: 'open', query, url: destination };
   }
 
   navigateTo(url) {
     window.location.assign(url);
+  }
+
+  // Uscire dallo specchio (Spotify, ricette) lo lascia in background: su iPad
+  // Safari sospende il microfono e il wake lock. Al ritorno ricarichiamo la
+  // pagina, così lo specchio riparte pulito e riprende l'ascolto.
+  armReturnReload() {
+    if (this.returnReloadArmed) return;
+    this.returnReloadArmed = true;
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState !== 'visible') return;
+      this.returnReloadArmed = false;
+      window.location.reload();
+    }, { once: true });
   }
 
   openSearch(url, preferChrome) {
@@ -646,21 +672,25 @@ class VoiceControl {
 
   cmdAlexaLights(cmd) {
     const lights = CONFIG.alexa.lights || [];
+    // Il nome della luce senza il prefisso "Luce ": così "quale luce" o
+    // "la luce della cucina" non fanno scattare la prima luce a caso.
+    const coreName = (name) => name.replace(/^luce\s+/i, '').trim().toLowerCase();
+    const askedWhichLight = this.matches(cmd, ['quale luce', 'quali luci', 'che luce']);
 
     // Spegni tutte le luci
     if (this.matches(cmd, ['spegni tutte', 'spegni tutto', 'spegni tutte le luci'])) {
-      lights.forEach((l, i) => setAlexaLight(i, false));
+      lights.forEach((l, i) => this.setLightState(i, false));
       this.respond('Ho spento tutte le luci.');
       this.highlightWidget('alexa-widget');
-      return;
+      return { action: 'lights-all', on: false };
     }
 
     // Accendi tutte le luci
     if (this.matches(cmd, ['accendi tutte', 'accendi tutto', 'accendi tutte le luci'])) {
-      lights.forEach((l, i) => setAlexaLight(i, true));
+      lights.forEach((l, i) => this.setLightState(i, true));
       this.respond('Ho acceso tutte le luci.');
       this.highlightWidget('alexa-widget');
-      return;
+      return { action: 'lights-all', on: true };
     }
 
     const isTurnOn = this.matches(cmd, ['accendi', 'attiva']);
@@ -669,30 +699,43 @@ class VoiceControl {
     for (let i = 0; i < lights.length; i++) {
       const light = lights[i];
       const lightName = light.name.toLowerCase();
+      const core = coreName(light.name);
 
-      // Corrispondenza con nome intero o parole chiave (es. "cucina", "cortile")
-      const words = lightName.split(' ');
-      const matched = words.some(w => w.length > 3 && cmd.includes(w)) || cmd.includes(lightName);
+      // Corrispondenza sul nome senza "luce" ("cucina", "cortile"): più precisa.
+      const matched = (core.length > 3 && cmd.includes(core)) || cmd.includes(lightName);
 
-      if (matched) {
+      if (matched && !askedWhichLight) {
         if (isTurnOn) {
-          setAlexaLight(i, true);
+          this.setLightState(i, true);
           this.respond(`Ho acceso ${light.name}.`);
         } else if (isTurnOff) {
-          setAlexaLight(i, false);
+          this.setLightState(i, false);
           this.respond(`Ho spento ${light.name}.`);
         } else {
           const targetState = !light.state;
-          setAlexaLight(i, targetState);
+          this.setLightState(i, targetState);
           this.respond(`${light.name} ${targetState ? 'accesa' : 'spenta'}.`);
         }
         this.highlightWidget('alexa-widget');
-        return;
+        return { action: 'lights', light: light.name, index: i, on: isTurnOff ? false : isTurnOn ? true : !light.state };
       }
     }
 
     this.respond('Quale luce vuoi controllare? Puoi dire "accendi luce cucina" o "accendi luce cortile".');
     this.highlightWidget('alexa-widget');
+    return { action: 'lights-unknown' };
+  }
+
+  // Unico punto in cui la voce cambia lo stato di una luce.
+  // Se app.js non è caricato (o la funzione manca) non si rompe nulla.
+  setLightState(index, targetState) {
+    if (typeof setAlexaLight !== 'function') {
+      console.warn('setAlexaLight non disponibile: comando luce ignorato.');
+      return;
+    }
+    Promise.resolve(setAlexaLight(index, targetState)).catch(error => {
+      console.warn('Comando luce non riuscito:', error);
+    });
   }
 
   cmdGreeting(cmd) {
@@ -741,13 +784,32 @@ class VoiceControl {
     const now = Date.now();
     this.timers = this.timers.filter(timer => {
       if (now >= timer.endTime.getTime()) {
-        this.playChime('alarm');
-        this.respond(`⏰ Tempo scaduto! Il timer di ${timer.label} è terminato.`);
+        this.startAlarm(timer.label);
         return false;
       }
       return true;
     });
     this.updateTimerOverlay();
+  }
+
+  // Una sveglia sola alla volta, che continua finché non la si ferma.
+  // Un singolo bip su uno specchio in un'altra stanza non serve a niente.
+  startAlarm(label) {
+    this.stopAlarm();
+    this.activeAlarm = { label };
+    const ring = () => {
+      if (!this.activeAlarm) return;
+      this.playChime('alarm');
+      this.alarmTimeout = setTimeout(ring, 2500);
+    };
+    ring();
+    this.respond(`Tempo scaduto! Il timer di ${label} è terminato. Tocca lo schermo o di' "stop" per fermare la sveglia.`);
+  }
+
+  stopAlarm() {
+    clearTimeout(this.alarmTimeout);
+    this.alarmTimeout = null;
+    this.activeAlarm = null;
   }
 
   showTimerOverlay() {
@@ -862,11 +924,24 @@ class VoiceControl {
   }
 
   // ── Feedback Sonoro (Web Audio API) ──
+  // Un solo AudioContext riusato: crearne uno a ogni bip, su iPad, porta
+  // dopo qualche giorno al limite del sistema e i suoni smettono di partire.
+  getAudioContext() {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return null;
+    if (!this.audioChimeContext || this.audioChimeContext.state === 'closed') {
+      this.audioChimeContext = new AudioCtx();
+    }
+    if (this.audioChimeContext.state === 'suspended') {
+      this.audioChimeContext.resume().catch(() => {});
+    }
+    return this.audioChimeContext;
+  }
+
   playChime(type) {
     try {
-      const AudioCtx = window.AudioContext || window.webkitAudioContext;
-      if (!AudioCtx) return;
-      const ctx = new AudioCtx();
+      const ctx = this.getAudioContext();
+      if (!ctx) return;
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
 
@@ -877,7 +952,7 @@ class VoiceControl {
         osc.frequency.setValueAtTime(700, ctx.currentTime);
         osc.frequency.setValueAtTime(1050, ctx.currentTime + 0.08);
         gain.gain.setValueAtTime(0.2, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTarget(0.001, ctx.currentTime + 0.25);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25);
         osc.start(ctx.currentTime);
         osc.stop(ctx.currentTime + 0.25);
       } else if (type === 'alarm') {
@@ -886,7 +961,9 @@ class VoiceControl {
         osc.start(ctx.currentTime);
         osc.stop(ctx.currentTime + 1.2);
       }
-    } catch (e) {}
+    } catch (e) {
+      console.warn('Bip non riprodotto:', e);
+    }
   }
 
   // ── Visualizzazioni a Schermo ──

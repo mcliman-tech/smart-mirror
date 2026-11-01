@@ -2,7 +2,7 @@
   "name": "Smart Mirror",
   "short_name": "Mirror",
   "description": "Smart Mirror Dashboard per iPad Air 2",
-  "start_url": "./index.html?v=27",
+  "start_url": "./index.html",
   "display": "standalone",
   "orientation": "landscape",
   "background_color": "#000000",

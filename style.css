@@ -183,6 +183,25 @@ body::after {
   margin-top: 6px;
 }
 
+/* Etichetta di stato del meteo: "dati di esempio", "non disponibile"...
+   Serve a non far sembrare reali numeri che non lo sono. */
+.weather-source {
+  font-size: 0.75rem;
+  letter-spacing: 0.02em;
+  margin-top: 4px;
+  opacity: 0.75;
+  color: #ffd27a;
+}
+
+.weather-source[hidden] {
+  display: none;
+}
+
+.widget-weather.is-error .weather-temp,
+.widget-weather.is-unconfigured .weather-temp {
+  opacity: 0.45;
+}
+
 .weather-forecast {
   display: flex;
   gap: 16px;

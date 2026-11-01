@@ -55,12 +55,33 @@ function updateClock() {
 // ============================================
 let weatherData = null;
 
+// Stato del meteo, per non spacciare mai dati finti per reali.
+// 'unconfigured' | 'loading' | 'live' | 'stale' | 'error'
+let weatherStatus = 'loading';
+let weatherLastOk = 0;
+let weatherRetryTimer = null;
+
+function setWeatherStatus(status, message) {
+  weatherStatus = status;
+  const widget = document.getElementById('weather-widget');
+  if (!widget) return;
+  widget.dataset.status = status;
+  widget.classList.toggle('is-unconfigured', status === 'unconfigured');
+  widget.classList.toggle('is-error', status === 'error');
+  widget.classList.toggle('is-stale', status === 'stale');
+  const badge = document.getElementById('weather-source');
+  if (badge) {
+    badge.textContent = message || '';
+    badge.hidden = !message;
+  }
+}
+
 async function updateWeather() {
   const { apiKey, city, units, lang } = CONFIG.weather;
 
   if (!apiKey) {
-    // Demo data
     showDemoWeather();
+    setWeatherStatus('unconfigured', 'Meteo non configurato · aggiungi la chiave dal menu ⚙️');
     return;
   }
 
@@ -74,10 +95,12 @@ async function updateWeather() {
     if (data.cod !== 200) {
       console.error('Weather API error:', data.message);
       showDemoWeather();
+      setWeatherStatus('error', 'Meteo non disponibile · chiave non valida?');
       return;
     }
 
     weatherData = data;
+    weatherLastOk = Date.now();
     const icon = WEATHER_ICONS[data.weather[0].icon] || '🌡️';
     $('#weather-icon').textContent = icon;
     $('#weather-temp').textContent = `${Math.round(data.main.temp)}°`;
@@ -85,6 +108,7 @@ async function updateWeather() {
     $('#weather-humidity').textContent = `💧 ${data.main.humidity}%`;
     $('#weather-wind').textContent = `💨 ${Math.round(data.wind.speed * 3.6)} km/h`;
     $('#weather-location').textContent = `📍 ${data.name}`;
+    setWeatherStatus('live', '');
 
     // Forecast
     const forecastRes = await fetch(
@@ -96,7 +120,19 @@ async function updateWeather() {
   } catch (err) {
     console.error('Weather fetch error:', err);
     showDemoWeather();
+    setWeatherStatus('error', 'Meteo non disponibile · riprovo tra 2 minuti');
   }
+}
+
+// Ritenta più spesso quando qualcosa non va, così lo specchio si riprende da solo.
+function scheduleWeatherRetry() {
+  clearTimeout(weatherRetryTimer);
+  weatherRetryTimer = setTimeout(async () => {
+    if (weatherStatus === 'error' || weatherStatus === 'unconfigured') {
+      await updateWeather();
+    }
+    scheduleWeatherRetry();
+  }, weatherStatus === 'live' ? CONFIG.weather.updateInterval : 2 * 60 * 1000);
 }
 
 // ============================================
@@ -221,23 +257,26 @@ async function getWeatherForCurrentLocation() {
 }
 
 function showDemoWeather() {
+  // ATTENZIONE: questi sono dati di esempio, NON letture reali.
+  // Vengono mostrati solo senza chiave API o in caso di errore, sempre
+  // accompagnati dall'etichetta "dati di esempio" (vedi setWeatherStatus).
   const hour = new Date().getHours();
   const isNight = hour < 6 || hour > 20;
 
   $('#weather-icon').textContent = isNight ? '🌙' : '☀️';
-  $('#weather-temp').textContent = '22°';
-  $('#weather-desc').textContent = isNight ? 'Sereno' : 'Soleggiato';
-  $('#weather-humidity').textContent = '💧 55%';
-  $('#weather-wind').textContent = '💨 12 km/h';
+  $('#weather-temp').textContent = '--°';
+  $('#weather-desc').textContent = isNight ? 'sereno (esempio)' : 'soleggiato (esempio)';
+  $('#weather-humidity').textContent = '💧 --%';
+  $('#weather-wind').textContent = '💨 -- km/h';
   $('#weather-location').textContent = `📍 ${CONFIG.weather.city.split(',')[0]}`;
 
   // Demo forecast
   const demoForecast = [
-    { day: 'Lun', icon: '☀️', temp: '24°' },
-    { day: 'Mar', icon: '⛅', temp: '21°' },
-    { day: 'Mer', icon: '🌧️', temp: '18°' },
-    { day: 'Gio', icon: '⛅', temp: '20°' },
-    { day: 'Ven', icon: '☀️', temp: '23°' },
+    { day: 'Lun', icon: '☀️', temp: '--' },
+    { day: 'Mar', icon: '⛅', temp: '--' },
+    { day: 'Mer', icon: '🌧️', temp: '--' },
+    { day: 'Gio', icon: '⛅', temp: '--' },
+    { day: 'Ven', icon: '☀️', temp: '--' },
   ];
 
   const forecastHTML = demoForecast.map(d =>
@@ -767,19 +806,36 @@ function saveSettings() {
 // ============================================
 async function requestWakeLock() {
   try {
-    if ('wakeLock' in navigator) {
-      await navigator.wakeLock.request('screen');
-      console.log('Wake Lock active');
-    }
+    if (!('wakeLock' in navigator)) return false;
+    if (wakeLockSentinel && !wakeLockSentinel.released) return true;
+    wakeLockSentinel = await navigator.wakeLock.request('screen');
+    wakeLockSentinel.addEventListener('release', () => {
+      wakeLockSentinel = null;
+    });
+    console.log('Wake Lock attivo');
+    return true;
   } catch (err) {
-    console.log('Wake Lock not available:', err);
+    console.log('Wake Lock non disponibile:', err);
+    return false;
   }
 }
+
+let wakeLockSentinel = null;
+
+// Il sistema può revocare il wake lock (batteria, chiamata, app in background)
+// senza cambiare la visibilità della pagina. Riproviamo ogni 30 secondi:
+// è quello che tiene acceso lo schermo dell'iPad per giorni.
+setInterval(() => {
+  if (document.visibilityState === 'visible') requestWakeLock();
+}, 30 * 1000);
 
 // Re-request wake lock on visibility change
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') {
     requestWakeLock();
+    // Al ritorno sullo specchio i dati possono essere vecchi: rinfreschiamoli.
+    if (typeof updateWeather === 'function') updateWeather();
+    if (typeof updateEnvironmentalData === 'function') updateEnvironmentalData();
   }
 });
 
@@ -796,6 +852,7 @@ function init() {
   // Weather
   updateWeather();
   setInterval(updateWeather, CONFIG.weather.updateInterval);
+  scheduleWeatherRetry();
 
   // External environmental data and daylight times for Sinnai
   updateEnvironmentalData();
