@@ -21,3 +21,6 @@ npm-debug.log*
 
 # Cartella di pubblicazione generata da tools/build-site.cjs
 _site/
+
+# Configurazione locale con i webhook delle luci (segreti: mai su GitHub)
+config.local.js

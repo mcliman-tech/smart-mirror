@@ -498,6 +498,24 @@ function updateCalendar() {
 // ALEXA LIGHTS (Controllo Luci Casa)
 // ============================================
 function loadAlexaLights() {
+  // 1. Prima la configurazione locale (config.local.js): contiene i webhook
+  //    veri e non viene pubblicata su GitHub.
+  const localLights = window.SM_LOCAL_CONFIG?.alexa?.lights;
+  if (Array.isArray(localLights)) {
+    localLights.forEach((local, index) => {
+      const current = CONFIG.alexa.lights[index];
+      if (!current || !local) return;
+      CONFIG.alexa.lights[index] = {
+        ...current,
+        name: local.name || current.name,
+        webhookOn: local.webhookOn || current.webhookOn || '',
+        webhookOff: local.webhookOff || current.webhookOff || '',
+        webhook: local.webhookOn || local.webhookOff || current.webhook || '',
+      };
+    });
+  }
+
+  // 2. Poi ciò che è stato salvato dal pannello su questo dispositivo.
   try {
     const saved = localStorage.getItem('sm_alexa_lights');
     if (saved) {
