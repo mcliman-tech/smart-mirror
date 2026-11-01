@@ -369,6 +369,12 @@ class VoiceControl {
       return;
     }
 
+    // Modalità app (Aggiungi a Home): su iPadOS il riconoscimento vocale del
+    // browser può non essere disponibile o essere rifiutato. In quel caso si
+    // passa alla dettatura di sistema, che dentro l'app funziona sempre.
+    const standalone = window.navigator.standalone === true ||
+      (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+
     try {
       const recognition = new SpeechRecognition();
       this.recognition = recognition;
@@ -392,12 +398,23 @@ class VoiceControl {
       recognition.onerror = event => {
         const messages = {
           'not-allowed': 'Il browser non ha concesso il microfono.',
-          'service-not-allowed': 'Il browser non consente il riconoscimento vocale.',
+          'service-not-allowed': 'Il riconoscimento vocale non è disponibile in modalità app.',
           'no-speech': 'Non ho rilevato la voce.',
           'audio-capture': 'Il browser non riesce ad accedere al microfono.',
           network: 'Il riconoscimento vocale del browser non è raggiungibile.',
         };
         const message = messages[event.error] || `Riconoscimento vocale non riuscito (${event.error}).`;
+        this.logDiag(`Riconoscimento browser: ${event.error}`);
+
+        // In modalità app l'errore è quasi sempre "service-not-allowed".
+        // Invece di arrenderci, apriamo la dettatura di sistema: il comando
+        // arriva lo stesso, e il campo resta a fuoco per riprovare.
+        if (standalone && (event.error === 'service-not-allowed' || event.error === 'not-allowed')) {
+          this.finishRecording(`${message} Uso la dettatura di iPadOS: tocca il microfono della tastiera e parla.`);
+          this.showVoiceInput();
+          return;
+        }
+
         this.finishRecording(`${message} Puoi dettare il comando con la tastiera.`);
         this.showVoiceInput();
       };
@@ -527,8 +544,20 @@ class VoiceControl {
     const fallbackForm = document.getElementById('voice-fallback');
     const input = document.getElementById('voice-command-input');
     if (fallbackForm) fallbackForm.hidden = false;
-    if (input) input.placeholder = 'Scrivi o detta con il microfono della tastiera';
-    input?.focus();
+    if (input) {
+      // Dentro l'app (Aggiungi a Home) il microfono della tastiera è
+      // l'unico modo di dettare: diciamolo chiaramente.
+      const standalone = window.navigator.standalone === true ||
+        (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+      input.placeholder = standalone
+        ? 'Tocca qui, poi il microfono sulla tastiera e parla'
+        : 'Scrivi o detta con il microfono della tastiera';
+      input.value = '';
+      input.focus();
+      // Su iPadOS la tastiera a volte compare solo dopo un tocco reale:
+      // riproviamo con un piccolo ritardo.
+      setTimeout(() => input.focus(), 250);
+    }
   }
 
   sleep() {

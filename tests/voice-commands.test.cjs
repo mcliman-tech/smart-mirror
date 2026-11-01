@@ -128,3 +128,53 @@ test('motore vocale: con "local" salvato usa Vosk', () => {
   voice.startRecording();
   assert.equal(usato, 'local');
 });
+
+test('in modalità app il fallimento del riconoscimento apre la dettatura', () => {
+  const ctx = loadApp({ __withApp: false });
+  ctx.navigator.standalone = true;
+  ctx.matchMedia = () => ({ matches: true, addEventListener() {}, addListener() {} });
+  const fake = function () {
+    this.start = () => { setTimeout(() => this.onerror && this.onerror({ error: 'service-not-allowed' }), 0); };
+    this.stop = () => {};
+    this.abort = () => {};
+  };
+  ctx.SpeechRecognition = fake;
+  ctx.webkitSpeechRecognition = fake;
+
+  const voice = new ctx.VoiceControl();
+  let dettaturaAperta = false;
+  voice.showVoiceInput = () => { dettaturaAperta = true; };
+  voice.finishRecording = () => {};
+  voice.showVoiceStatus = () => {};
+  voice.startBrowserRecording();
+
+  return new Promise(resolve => setTimeout(() => {
+    assert.equal(dettaturaAperta, true, 'deve aprire la dettatura invece di arrendersi');
+    resolve();
+  }, 30));
+});
+
+test('fuori dalla modalità app il messaggio resta quello normale', () => {
+  const ctx = loadApp({ __withApp: false });
+  ctx.navigator.standalone = false;
+  ctx.matchMedia = () => ({ matches: false, addEventListener() {}, addListener() {} });
+  const fake = function () {
+    this.start = () => { setTimeout(() => this.onerror && this.onerror({ error: 'no-speech' }), 0); };
+    this.stop = () => {};
+    this.abort = () => {};
+  };
+  ctx.SpeechRecognition = fake;
+  ctx.webkitSpeechRecognition = fake;
+
+  const voice = new ctx.VoiceControl();
+  let messaggio = '';
+  voice.showVoiceInput = () => {};
+  voice.finishRecording = (m) => { messaggio = m; };
+  voice.showVoiceStatus = () => {};
+  voice.startBrowserRecording();
+
+  return new Promise(resolve => setTimeout(() => {
+    assert.match(messaggio, /Non ho rilevato la voce/);
+    resolve();
+  }, 30));
+});
