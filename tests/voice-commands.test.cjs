@@ -178,3 +178,25 @@ test('fuori dalla modalità app il messaggio resta quello normale', () => {
     resolve();
   }, 30));
 });
+
+test('in modalità app il tocco sul microfono apre subito la dettatura', () => {
+  const ctx = loadApp({ __withApp: false });
+  ctx.navigator.standalone = true;
+  ctx.matchMedia = () => ({ matches: true, addEventListener() {}, addListener() {} });
+  // In modalità app iPadOS non espone il riconoscimento vocale: il codice
+  // deve comunque portare alla dettatura, non arrendersi.
+  delete ctx.SpeechRecognition;
+  delete ctx.webkitSpeechRecognition;
+
+  const voice = new ctx.VoiceControl();
+  let dettaturaAperta = false;
+  let stato = '';
+  voice.showVoiceInput = () => { dettaturaAperta = true; };
+  voice.showVoiceStatus = (m) => { stato = m; };
+  voice.logDiag = () => {};
+
+  voice.startBrowserRecording();
+
+  assert.equal(dettaturaAperta, true, 'deve aprire la dettatura al primo tocco');
+  assert.match(stato, /microfono della tastiera/);
+});

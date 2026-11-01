@@ -376,6 +376,16 @@ class VoiceControl {
     const standalone = window.navigator.standalone === true ||
       (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
 
+    // In modalità app il riconoscimento vocale del browser di solito fallisce
+    // con 'service-not-allowed'. Non lo proviamo nemmeno: passiamo diretti
+    // alla dettatura, così il tocco sul microfono ha subito un effetto.
+    if (standalone && !this.forceBrowserRecognition) {
+      this.logDiag('Modalità app: uso la dettatura di iPadOS.');
+      this.showVoiceInput();
+      this.showVoiceStatus('Tocca il pulsante e detta con il microfono della tastiera.', 'awake');
+      return;
+    }
+
     try {
       const recognition = new SpeechRecognition();
       this.recognition = recognition;
