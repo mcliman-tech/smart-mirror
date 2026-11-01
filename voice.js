@@ -156,7 +156,10 @@ class VoiceControl {
       this.showVoiceStatus('Apri Smart Mirror dal sito HTTPS per usare il microfono.', 'error');
       return;
     }
-    if (window.Vosk?.createModel) {
+    // Il motore vocale si sceglie dalle impostazioni: 'browser' usa il
+    // riconoscimento di iPadOS (nessun download), 'local' usa Vosk.
+    const engine = localStorage.getItem('sm_voice_engine') || 'browser';
+    if (engine === 'local' && window.Vosk?.createModel) {
       this.startLocalListening();
       return;
     }

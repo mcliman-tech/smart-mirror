@@ -742,6 +742,18 @@ body::after {
   box-sizing: border-box;
 }
 
+.setting-group select {
+  width: 100%;
+  padding: 10px 12px;
+  background: #1e1e1e;
+  border: 1px solid #333;
+  border-radius: 8px;
+  color: #fff;
+  font-size: 0.95rem;
+  outline: none;
+  box-sizing: border-box;
+}
+
 .setting-group input:focus {
   border-color: #64c8ff;
 }

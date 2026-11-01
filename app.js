@@ -860,6 +860,7 @@ function toggleSettings() {
   if (overlay.classList.contains('visible')) {
     $('#setting-weather-api').value = localStorage.getItem('sm_weather_api') || CONFIG.weather.apiKey || '';
     $('#setting-city').value = localStorage.getItem('sm_city') || CONFIG.weather.city || 'Sinnai, Sardegna, IT';
+    $('#setting-voice-engine').value = localStorage.getItem('sm_voice_engine') || 'browser';
 
     loadAlexaLights();
     const lights = CONFIG.alexa.lights;
@@ -929,6 +930,22 @@ function saveSettings() {
 
   localStorage.setItem('sm_weather_api', weatherApi);
   localStorage.setItem('sm_city', city || 'Sinnai, Sardegna, IT');
+
+  // Motore vocale: 'browser' (iPadOS) oppure 'local' (Vosk).
+  const engineSelect = $('#setting-voice-engine');
+  const engine = engineSelect?.value === 'local' ? 'local' : 'browser';
+  localStorage.setItem('sm_voice_engine', engine);
+  const engineStatus = $('#voice-engine-status');
+  if (engineStatus) {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    engineStatus.className = `weather-key-status ${SpeechRecognition ? 'ok' : 'ko'}`;
+    engineStatus.textContent = engine === 'local'
+      ? 'Motore locale attivo: il modello da 48 MB viene scaricato al primo uso.'
+      : SpeechRecognition
+        ? 'Motore iPadOS attivo: nessun download, risposta immediata.'
+        : 'Questo browser non offre il riconoscimento vocale: resta disponibile la dettatura da tastiera.';
+  }
+
   CONFIG.weather.apiKey = weatherApi;
   CONFIG.weather.city = city || 'Sinnai, Sardegna, IT';
 

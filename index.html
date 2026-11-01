@@ -136,6 +136,15 @@
         <label>📍 Città (meteo)</label>
         <input type="text" id="setting-city" placeholder="es. Sinnai, Sardegna, IT" value="Sinnai, Sardegna, IT">
       </div>
+
+      <div class="setting-group">
+        <label>🎙️ Motore vocale</label>
+        <select id="setting-voice-engine">
+          <option value="browser">iPadOS (immediato, nessun download — audio a Apple)</option>
+          <option value="local">Vosk locale (48 MB, l'audio resta sul dispositivo)</option>
+        </select>
+        <div class="weather-key-status" id="voice-engine-status"></div>
+      </div>
       
       <div class="settings-separator"></div>
 

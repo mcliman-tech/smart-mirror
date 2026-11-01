@@ -105,3 +105,26 @@ test('spotify: "metti musica dei Pink Floyd" costruisce la ricerca', () => {
   assert.match(decodeURIComponent(result.url).toLowerCase(), /pink floyd/);
   assert.doesNotMatch(decodeURIComponent(result.url).toLowerCase(), /dei pink/);
 });
+
+test('motore vocale: di default usa quello di iPadOS, non Vosk', () => {
+  const ctx = loadApp();
+  const voice = new ctx.VoiceControl();
+  let usato = null;
+  voice.startLocalListening = () => { usato = 'local'; };
+  voice.startBrowserRecording = () => { usato = 'browser'; };
+  ctx.window.Vosk = { createModel: () => {} };
+  voice.startRecording();
+  assert.equal(usato, 'browser', 'senza scelta esplicita non deve scaricare 48 MB');
+});
+
+test('motore vocale: con "local" salvato usa Vosk', () => {
+  const ctx = loadApp();
+  ctx.localStorage.setItem('sm_voice_engine', 'local');
+  const voice = new ctx.VoiceControl();
+  let usato = null;
+  voice.startLocalListening = () => { usato = 'local'; };
+  voice.startBrowserRecording = () => { usato = 'browser'; };
+  ctx.window.Vosk = { createModel: () => {} };
+  voice.startRecording();
+  assert.equal(usato, 'local');
+});
