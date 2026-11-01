@@ -70,6 +70,7 @@ class VoiceControl {
         <button type="submit">Invia</button>
       </form>
       <button type="button" class="voice-mic" id="voice-mic" title="Avvia o ferma l’ascolto vocale" aria-label="Avvia o ferma l’ascolto vocale">🎙️</button>
+      <button type="button" class="voice-diag-btn" id="voice-diag-btn" title="Diagnostica vocale">🔍</button>
     `;
     document.body.appendChild(indicator);
 
@@ -83,6 +84,13 @@ class VoiceControl {
 
     const micBtn = document.getElementById('voice-mic');
     if (!micBtn) return;
+
+    // Pulsante 🔍: apre la diagnostica in qualunque momento.
+    const diagBtn = document.getElementById('voice-diag-btn');
+    diagBtn?.addEventListener('click', () => {
+      this.diagEnvironment();
+      this.showDiagPanel('Diagnostica richiesta a mano.');
+    });
 
     const fallbackForm = document.getElementById('voice-fallback');
     fallbackForm?.addEventListener('submit', event => {
@@ -229,6 +237,7 @@ class VoiceControl {
       this.showVoiceStatus('In ascolto continuo. Parla in italiano.', 'awake');
     } catch (error) {
       console.error('Avvio del riconoscimento vocale locale non riuscito:', error);
+      this.logDiag(`Errore avvio: ${error.name} · ${error.message}`);
       await this.stopLocalListening();
       this.finishRecording(error.name === 'NotAllowedError'
         ? 'Consenti l’accesso al microfono per avviare l’ascolto.'
@@ -236,7 +245,7 @@ class VoiceControl {
           ? 'Il modello non ha terminato il caricamento entro 3 minuti. Verifica la connessione, chiudi e riapri Smart Mirror, poi riprova.'
           : error.message?.startsWith('Vosk:')
             ? error.message.replace(/^Vosk:\s*/, '')
-        : 'Non riesco ad avviare il riconoscimento locale. Verifica la connessione e riprova.');
+        : `Non riesco ad avviare il riconoscimento locale (${error.name || 'errore'}). Apri la diagnostica 🔍.`);
     }
   }
 
@@ -251,8 +260,15 @@ class VoiceControl {
     // pagina. Con il sito in un sottopercorso (GitHub Pages: /smart-mirror/)
     // questo causava un 404 sul modello.
     const modelUrl = new URL('models/vosk-it-small-0.22.tar.gz', window.location.href).href;
+    this.logDiag(`Modello richiesto: ${modelUrl}`);
     const model = new Model(modelUrl, -1);
     this.voskModel = model;
+
+    // Diagnostica: interroghiamo noi l'URL per sapere esattamente cosa risponde
+    // il server, invece di fidarci solo dell'errore del worker.
+    fetch(modelUrl, { method: 'HEAD' })
+      .then(res => this.logDiag(`HEAD modello: HTTP ${res.status} · ${res.headers.get('content-length') || '?'} byte · ${res.headers.get('content-type') || '?'}`))
+      .catch(err => this.logDiag(`HEAD modello fallita: ${err.message}`));
 
     return new Promise((resolve, reject) => {
       const cleanup = () => {
@@ -271,10 +287,11 @@ class VoiceControl {
       const onError = event => {
         cleanup();
         const detail = event.detail?.error || 'errore durante il caricamento del modello.';
+        this.logDiag(`Worker Vosk: ${detail}`);
         // 404 sul modello è l'errore più comune: se il file non è dove ci
         // aspettiamo (es. cartella pubblicata diversa), lo segnaliamo chiaro.
         const message = /404|not found/i.test(detail)
-          ? `Il file del modello vocale non è raggiungibile (404): controlla che models/vosk-it-small-0.22.tar.gz sia stato pubblicato. Dettaglio: ${detail}`
+          ? `Il file del modello vocale non è raggiungibile (404). Apri la diagnostica 🔍 per il dettaglio.`
           : `Vosk: ${detail}`;
         reject(new Error(message));
       };
@@ -445,6 +462,62 @@ class VoiceControl {
     const mic = document.getElementById('voice-mic');
     if (mic) mic.classList.remove('awake', 'listening');
     this.showVoiceStatus(message, 'error');
+    this.showDiagPanel(message);
+  }
+
+  // ── Diagnostica ──
+  // Su iPad non c'è una console accessibile: senza questo, un errore del
+  // worker resta invisibile e "non funziona" è tutto ciò che si può dire.
+  logDiag(line) {
+    this.diagLines = this.diagLines || [];
+    const stamp = new Date().toLocaleTimeString('it-IT');
+    this.diagLines.push(`${stamp}  ${line}`);
+    if (this.diagLines.length > 60) this.diagLines.shift();
+    const pre = document.getElementById('voice-diag-log');
+    if (pre) pre.textContent = this.diagLines.join('\n');
+    console.log('[diag]', line);
+  }
+
+  diagEnvironment() {
+    this.logDiag(`Versione: ${window.SM_VERSION || '?'}`);
+    this.logDiag(`Pagina: ${window.location.href}`);
+    this.logDiag(`Contesto sicuro: ${window.isSecureContext}`);
+    this.logDiag(`Vosk caricato: ${Boolean(window.Vosk?.Model)}`);
+    this.logDiag(`Microfono API: ${Boolean(navigator.mediaDevices?.getUserMedia)}`);
+    this.logDiag(`User-Agent: ${navigator.userAgent}`);
+    this.logDiag(`Service worker: ${navigator.serviceWorker?.controller ? 'attivo' : 'nessuno'}`);
+  }
+
+  showDiagPanel(message) {
+    this.diagLines = this.diagLines || [];
+    this.diagLines.push(`${new Date().toLocaleTimeString('it-IT')}  ERRORE: ${message}`);
+
+    let panel = document.getElementById('voice-diag-panel');
+    if (!panel) {
+      panel = document.createElement('div');
+      panel.id = 'voice-diag-panel';
+      panel.className = 'voice-diag-panel';
+      panel.innerHTML = `
+        <div class="voice-diag-head">
+          <strong>Diagnostica vocale</strong>
+          <button type="button" id="voice-diag-close" aria-label="Chiudi">✕</button>
+        </div>
+        <pre id="voice-diag-log"></pre>
+        <div class="voice-diag-actions">
+          <button type="button" id="voice-diag-copy">Copia tutto</button>
+        </div>`;
+      document.body.appendChild(panel);
+      panel.querySelector('#voice-diag-close').addEventListener('click', () => panel.classList.remove('visible'));
+      panel.querySelector('#voice-diag-copy').addEventListener('click', () => {
+        const text = (this.diagLines || []).join('\n');
+        navigator.clipboard?.writeText(text)
+          .then(() => this.logDiag('Testo copiato negli appunti.'))
+          .catch(() => this.logDiag('Copia non riuscita: seleziona il testo a mano.'));
+      });
+    }
+    const pre = panel.querySelector('#voice-diag-log');
+    if (pre) pre.textContent = this.diagLines.join('\n');
+    panel.classList.add('visible');
   }
 
   showVoiceInput() {
